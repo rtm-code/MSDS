@@ -1,0 +1,194 @@
+---
+title: "Week 3 Project"
+author: "Anonymized for Project Submission"
+date: "2023-09-12"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Intro
+In this document, I will clean and analyze the NYPD Shooting Incident dataset. The dataset is available in
+the link below. https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+## Libraries
+
+The libraries used for this assignment are:
+ggplot2, dplyr, knitr, rmarkdown, readr, tidyverse, and lubridate.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(rmarkdown)
+library(readr)
+library(tidyverse)
+library(lubridate)
+```
+
+## Importing the data
+```{r echo = TRUE}
+URL <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPD <- readr::read_csv(URL)
+
+```
+## Summary Stats
+Now, let’s take a brief look at the summary statistics of the dataset. Right now, this means nothing since
+it is uncleaned and unverified. This step helps with a quick look at the data, but there could be outliers
+or incorrectly input data. This summary will show the barebones of the statistics: min/max/quartiles for
+numeric columns and length/datatype for the string-based columns. This summary should only be used for
+a very loose idea of the data, such as how large the dataframe is and what the rough ranges are.
+
+```{r, echo = TRUE}
+summary(NYPD)
+```
+
+## Fixing the data
+My first step is to convert the OCCUR_DATE column to a datetime data type. The lubridate library
+function make this an easy, one liner task. Having the date in proper format is important for more accurately
+reading and manipulating it in future code.
+
+```{r echo = TRUE}
+NYPD$OCCUR_DATE <- lubridate::mdy(NYPD$OCCUR_DATE)
+
+```
+
+The following shows that there are a lot of NA values in 3 columns (10,000+) as well as a smaller amount
+(but still a lot) of NA values in other columns. The first three columns will be removed as there is not
+enough data in them to justify keeping them around. This cell will count NA and then remove the 3 columns
+of LOC_CLASSFCTN_DESC, LOCATION_DESC, and LOC_OF_OCCUR_DESC.
+
+```{r, echo = TRUE}
+sapply(NYPD, function(x) sum(is.na(x)))
+```
+```{r}
+NYPD <- subset(NYPD, select = -c(LOC_CLASSFCTN_DESC, LOCATION_DESC, LOC_OF_OCCUR_DESC))
+```
+
+Now it is time to turn the Victim and Perp related columns into categorical variables. From a brief glance
+of the dataset, it is clear that the age should be categorical as there are a lot of repeat values that appear
+within ranges rather than a specific number. Categorical is the most logical for the Victim/Perp Sex as there
+is a finite amount of options. The same concept holds true for race.
+
+```{r}
+# Perps
+NYPD$PERP_AGE_GROUP <- as.factor(NYPD$PERP_AGE_GROUP)
+NYPD$PERP_SEX <- as.factor(NYPD$PERP_SEX)
+NYPD$PERP_RACE <- as.factor(NYPD$PERP_RACE)
+# Victims
+NYPD$VIC_AGE_GROUP <- as.factor(NYPD$VIC_AGE_GROUP)
+NYPD$VIC_RACE <- as.factor(NYPD$VIC_RACE)
+NYPD$VIC_SEX <- as.factor(NYPD$VIC_SEX)
+
+```
+
+With the columns categorized properly, it is time to inspect and verify the data. Anything that does not
+make sense, such as a negative age bracket or an invalid sex should be investigated further and removed
+from the dataset. After inspection, there are a few invalid inputs, such as 1020 for age (nobody is immortal).
+Race and sex seem fine enough. The number of “Unknown” in the Age/Sex/Race column can indicate that
+the shooter may have gotten away with their crime (upon investigation) or the victim survived and did not
+further report the incident.
+
+```{r}
+# Perp levels inspection
+levels(NYPD$PERP_AGE_GROUP)
+levels(NYPD$PERP_SEX)
+levels(NYPD$PERP_RACE)
+
+# Victim levels inspection
+levels(NYPD$VIC_AGE_GROUP)
+levels(NYPD$VIC_SEX)
+levels(NYPD$VIC_RACE)
+
+```
+
+Going through each of the columns in the dataframe to audit the data clearly and check to see if there are
+any other columns that do not contribute significant amounts of information to the overall dataset. By using
+the ‘aggregate’ command, we can get a quick count of the number of times a given value appears. Through
+this, jurisdiction code seems to be cleaned or clean enough. These aggregates have shown that the data is
+cleaned and it is time to analyze it.
+
+```{r}
+boro_count <- NYPD %>% count(BORO)
+boro_count
+
+```
+
+## Plotting the data
+This plot shows the number of firearm incidents in each NYC borough. This graph shows that the highest
+concentration of firearm incidents is within Brooklyn and the Bronx. After looking up the population of
+NYC’s boroughs, this is unusual as the Bronx and Manhattan have a similar number of people however there
+is a stark contrast between the number of firearm incidents. Brooklyn and Queens have similar populations
+but there is a large difference in incidents. Source: https://en.wikipedia.org/wiki/Boroughs_of_New_
+York_City#Background. Wikipedia’s source pulls directly from the US Census data.
+```{r}
+ggplot(NYPD, aes(x = BORO)) +
+  geom_bar(color = "black") +
+  stat_count(geom="text", colour = "white", size = 3.5,
+             aes(label = after_stat(count)), position = position_stack(vjust = 0.5)) +
+  ggtitle("Shooting Incidents per Borough") + 
+  xlab("NYC Borough") + ylab("Total Number of Shooting Incidents")
+  
+```
+This chunk shows the number of shootings committed by each race in the dataset. 
+
+```{r}
+race <- aggregate(data.frame(count = NYPD$PERP_RACE), list(value = NYPD$PERP_RACE), length)
+race
+```
+This graph shows the number of shooting incidents committed by each race/ethnicity. There is a large
+discrepancy between the incidents by black NYC residents and all other races. The next closest group are
+both of the Hispanic demographics and unknown. The unknown could be that the shooter was not able
+to be identified through police investigation and likely escaped or there were no witnesses around to give a
+description.
+
+```{r}
+ggplot(NYPD, aes(x = PERP_RACE)) +
+  geom_bar(color = "lightblue") +
+  stat_count(geom="text", colour = "blue", size = 3.5,
+             aes(label = after_stat(count)), position = position_stack(vjust = 0.8)) +
+  theme_dark() +
+  ggtitle("Shooting Incidents per Race/Ethnicity") + 
+  theme(axis.text.x = element_text(angle = 90)) + 
+  xlab("Race or Ethnicity") + ylab("Total Number of Shooting Incidents")
+  
+```
+
+
+
+## Modeling the Data
+
+Here, I will take a simple linear model of the data to loosely predict if a shooting incident is a homicide
+based on the time and date. First is a plot comparing the time of day to whether or not an incident was a
+statistical murder, based on the original column from the dataset rather than statistical analysis within this
+document.
+```{r}
+ggplot(NYPD, aes(x = OCCUR_DATE, y = OCCUR_TIME, color = STATISTICAL_MURDER_FLAG)) + 
+  geom_point()
+```
+
+In this model, the p value for the date and time are both outside of the statistically significant values of
+>= 0.95 or <= 0.05. With the p-value in mind, the date and time are not good predictors of if a shooting
+incident will be a statistical murder. Even when re-modeling using only date or only time, the p-value is
+still outside of the statistically significant range. The R-squared value approaches 0, which means that the
+model is not a good fit and that the variation in statistical murder is unaffected by time of day or date.
+
+```{r}
+model <- lm(STATISTICAL_MURDER_FLAG ~ OCCUR_DATE + OCCUR_TIME, data = NYPD)
+summary(model)$coeff
+
+```
+```{r}
+summary(model)
+```
+
+## Biases
+Going in to this assignment, I had a loose idea of what I could expect out of the racial distribution of shooting
+incidents, with Black Americans at the upper end and Asian Americans at the lower end. While the data
+shows that it fits the stereotype, race alone is not enough of a reason for it to happen. There are many
+variables in play that lead to this which are not shown within the data, such as socioeconomic standings
+and cultural differences. Another bias within my pre-assignment thoughts was actually a lack of a thought:
+I forgot about the indigenous peoples as well as did not think about splitting up the Latino race into white
+and black. The best way to mitigate either forms of these bias is to only think about it within the context of
+the data. By ignoring my pre-assignment thoughts, I can draw a more objective conclusion using the data
+with potential evidence rather than random anecdotes.

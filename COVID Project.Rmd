@@ -1,0 +1,294 @@
+---
+title: "COVID Project"
+author: "Anonymized for Project Submission"
+date: "October 6, 2023"
+output: pdf_document
+---
+
+## Introduction
+In this document, I will show data cleaning and analysis, following the steps from the lecture videos. 
+
+
+## Libraries
+The libraries used for this assignment are:
+ggplot2, dplyr, knitr, rmarkdown, readr, tidyverse, and lubridate.
+
+```{r setup, echo=FALSE, results = 'hide', message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(rmarkdown)
+library(readr)
+library(tidyverse)
+library(lubridate)
+```
+
+## Dataset
+
+Below are the datasets used within this document. Each of the links goes directly to a raw CSV file that can be downloaded from github. The more human-readable github is: https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series
+
+``` {r, echo = TRUE}
+global_cases <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv", show_col_types = FALSE)
+
+global_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv", show_col_types = FALSE)
+
+US_cases <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv", show_col_types = FALSE)
+
+US_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv", show_col_types = FALSE)
+
+```
+
+
+## Head
+
+A brief inspection of the datasets. The variable inside of the head() function can be changed to inspect each dataset. 
+```{r, echo = TRUE}
+head(US_cases, n = 5)
+```
+Pre-cleaning the data in order to make it more readable and usable. Here, we are combining Province/State and Country/Region into one more readable combination. We are also dropping latitude and longitude as those are not necessary for this analysis due to how specific they get when country/state/city is enough. 
+``` {r}
+
+global_cases <- global_cases %>% pivot_longer(cols = 
+                                   -c(`Province/State`, `Country/Region`, Lat, Long),
+                                 names_to = "date", 
+                                 values_to = "cases") %>% select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c(`Province/State`, 
+                         `Country/Region`, Lat, Long),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat, Long))
+
+```
+
+```{r}
+#global_cases
+global_deaths
+```
+Renaming the country/region and Province/State columns to use an underscore. Also, here we are using the lubridate library to convert the date into a proper date format and data type. 
+``` {r, echo = TRUE}
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = 'Country/Region', Province_State = 'Province/State') %>% mutate(date = mdy(date))
+
+```
+A brief inspection of the variable we created in order to confirm that everything worked correctly. 
+``` {r, echo = TRUE}
+global
+```
+
+Filtering out the rows so that we only see rows where the cases is greater than 0, which means that COVID has been caught by someone there. We also look at the summary statistics of the dataset to confirm that there are no unusual values, such as a negative minimum in cases or an impossible maximum. 
+```{r, echo = TRUE}
+
+global <- global %>% filter(cases > 0)
+summary(global)
+
+```
+Repeating the same steps for the US cases dataset: pivot, create a variable, join, and then inspect. 
+``` {r, echo = TRUE}
+US_cases <- US_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>% 
+  select(-c(Lat, Long_))
+```
+
+
+``` {r, echo = TRUE}
+US_cases
+```
+Similar steps for the US deaths dataset. 
+```{r, echo = TRUE}
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+
+
+```
+
+``` {r, echo = TRUE}
+US_deaths
+```
+This join will combine cases and deaths into one variable for the US. Its output will give us city, state, country (which should only be US or US territories), date, number of cases, total population of the city, and the number of deaths. 
+```{r}
+US <- US_cases %>%
+  full_join(US_deaths)
+
+```
+
+Inspecting the US variable. 
+```{r}
+US
+```
+
+Using the unite() function, we create a new column called "Combined_Key", which will take data from the Province_State region. If there is no data, it will defer to the Country_Region column. If both of those columns have an NA value for that row, the row is removed from the dataset. 
+```{r}
+global <- global %>% unite("Combined_Key",
+                           c(Province_State, Country_Region),
+                           sep = ", ",
+                           na.rm = TRUE,
+                           remove = FALSE)
+global
+```
+
+Here, we are using another dataset within the github to look up the meaning of ISO and FIPS meanings in order to make use of them. By using a join, we can cleanly join the UID to the Country and Province columns. This will make the data more readable and cross-comparable. 
+```{r}
+UID_lookup <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+uid <- read_csv(UID_lookup) %>% select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID, FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+global
+```
+Now we are grouping the US dataset down so that it goes state by state, which makes it easy to compare different sections of the US. We will also be adding a deaths per million statistic as well as a cases per million statistic. This will help compare across the states since population will vary. It also tracks how well a state might be handling the pandemic. 
+``` {r}
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+US_by_state
+```
+
+```{r}
+US_total <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population) %>%
+  select(Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup
+
+US_total
+```
+## Visualizations
+
+
+This plot will show the number of cases versus the number of deaths. The y axis will use a logarithmic scale in order to prevent the two subgraphs from being too far apart and creating a visual bias towards either side. There is a clear trend shown that COVID is being managed well after the original outbreak in early 2020.  
+```{r}
+US_total %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color = "cases")) + 
+  geom_line(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in the United States", y = NULL)
+
+
+```
+Let's take a look at Texas and compare it with California. These are the two largest states that heavily vote for Democrats (California) or Republicans (Texas) with no real sign of changing. 
+
+Texas shows that there were more cases and less consistent flattening of the deaths. This tracks as some people in Texas might not have believed in the vaccine and chose to listen to the incorrect Presidential recommendations of horse dewormer and excess UV light. 
+```{r}
+state <- "Texas"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("Covid 19 in ", state), y = NULL)
+```
+```{r}
+state <- "California"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) + 
+  geom_point(aes(color = "cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("Covid 19 in ", state), y = NULL)
+```
+
+Creating columns to track new deaths and new cases allows for more accurate tracking of how many cases are breaking out per day. Someone who contracted COVID yesterday reporting that they still have COVID is not surprising, however seeing a wave of new cases should be some amount of surprising. 
+```{r}
+US_by_state <- US_by_state %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+US_total <- US_total %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+tail(US_total %>% select(new_cases, new_deaths, everything()))
+```
+Tracking the overall count of new cases and new deaths over time in the US. While it might seem obvious that every death is "new" since you can only die once, it is still important to see the trend. 
+```{r}
+US_total %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) + 
+  geom_point(aes(color = "new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +  
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in the US", y = NULL)
+```
+
+```{r}
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+            cases_per_1k = 1000 * cases / population,
+            deaths_per_1k = 1000 * deaths / population) %>%
+  filter(cases > 0, population > 0)
+
+US_state_totals %>%
+  slice_min(deaths_per_1k, n = 10) %>%
+  select(deaths_per_1k, cases_per_1k, everything())
+
+US_state_totals %>%
+  slice_max(deaths_per_1k, n = 10) %>%
+  select(deaths_per_1k, cases_per_1k, everything())
+
+US_state_totals
+```
+## Model
+
+A basic linear model that is meant to predict the deaths per 1000, dependent on the cases per 1000. This only predicts for the United States and United States territories. The r-squared value is 0.2933, which shows that there is some relationship between cases --> deaths, but not enough to declare it a clear and bound relationship. The p-value is under 0.05 which shows that it is statistically significant rather and that the cases per thousand impacts the deaths per thousand. On the grand scale, this is an ok model that is acceptable, but there is more that can be done to fine tune it. 
+```{r}
+mod <- lm(deaths_per_1k ~ cases_per_1k, data = US_state_totals)
+summary(mod)
+
+US_state_totals %>% mutate(pred = predict(mod))
+
+US_tot_with_pred <- US_state_totals %>% mutate(pred = predict(mod))
+US_tot_with_pred
+```
+The graph below shows the prediction against the known data. The prediction graph is in blue and is much more scattered than the red. The red represents the actual data pulled from the US_tot_with_pred dataset. 
+```{r}
+US_tot_with_pred %>% ggplot() + 
+  geom_point(aes(x = cases_per_1k, y = deaths_per_1k), color = "blue") +
+  geom_point(aes(x = cases_per_1k, y = pred), color = "red")
+
+```
+
+## Biases
+In this project, I focused mostly on the United States as that is both where I grew up and live. I made a relatively loose assumption that developing countries would struggle more than developed nations. I also had political biases in regards to the US data: I expected to see higher deaths in Republican voting states and lower deaths in Democrat leaning states. This stems from how the government handled the pandemic versus the president going out of his way to spread misinformation and promote an anti-mask sentiment despite masks being a step in the right direction. 
