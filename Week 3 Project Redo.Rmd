@@ -130,29 +130,35 @@ ggplot(NYPD, aes(x = BORO)) +
   xlab("NYC Borough") + ylab("Total Number of Shooting Incidents")
   
 ```
-This chunk shows the number of shootings committed by each race in the dataset. 
+This chunk shows the number of shootings committed by each race in the dataset. It is also where I did some minor cleaning to remove NA values, which are different from "Unknown" values as NA indicates that there was nothing entered versus unknown representing that the police were unable to identify any usable information from witnesses or investigation.  
 
 ```{r}
-race <- aggregate(data.frame(count = NYPD$PERP_RACE), list(value = NYPD$PERP_RACE), length)
+race <- as.data.frame(table(NYPD$PERP_RACE))
+race <- race[-1,]
+names(race)[names(race) == "Var1"] <- "Ethnicity"
+names(race)[names(race) == "Freq"] <- "Incidents"
+
 race
+
 ```
+
 This graph shows the number of shooting incidents committed by each race/ethnicity. There is a large
 discrepancy between the incidents by black NYC residents and all other races. The next closest group are
 both of the Hispanic demographics and unknown. The unknown could be that the shooter was not able
 to be identified through police investigation and likely escaped or there were no witnesses around to give a
 description.
-
 ```{r}
-ggplot(NYPD, aes(x = PERP_RACE)) +
-  geom_bar(color = "lightblue") +
-  stat_count(geom="text", colour = "blue", size = 3.5,
-             aes(label = after_stat(count)), position = position_stack(vjust = 0.8)) +
+ggplot(race, aes(x = Ethnicity, y =Incidents)) + geom_col(color = "lightblue")  +
   theme_dark() +
   ggtitle("Shooting Incidents per Race/Ethnicity") + 
   theme(axis.text.x = element_text(angle = 90)) + 
-  xlab("Race or Ethnicity") + ylab("Total Number of Shooting Incidents")
+  xlab("Race or Ethnicity") + ylab("Total Number of Shooting Incidents") +
+  geom_text(aes(label = Incidents), vjust = 0.5, colour = "blue")
   
 ```
+
+
+
 
 
 
